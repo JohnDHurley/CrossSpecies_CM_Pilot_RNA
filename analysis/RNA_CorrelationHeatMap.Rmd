@@ -1,0 +1,1963 @@
+---
+title: "RNA_CorrelationHeatMap"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+date: "2026-01-14"
+---
+
+```{r setup, include=FALSE, warning = FALSE, message=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	dev = c("png","pdf")
+)
+```
+
+# RNA-seq Quality Control
+
+## Setting enviroment
+
+### Loading libraries
+```{r Setting_Up_Enviroment, include=FALSE, warning = FALSE, message=FALSE}
+library("edgeR")
+library("ggplot2")
+library("tibble")
+library("dplyr")
+library("ggrepel")
+library("readr")
+library("org.Hs.eg.db")
+library("AnnotationDbi")
+library("pheatmap")
+library("Cormotif")
+library("tidyverse")
+library("workflowr")
+library("RUVSeq")
+library("SummarizedExperiment")
+library("readxl")
+library("ggfortify")
+library("ComplexHeatmap")
+library("tidyr")
+library("forcats")
+library("tidyr")
+library("ggplot2")
+
+# BiocManager::install("SummarizedExperiment")
+```
+
+### Loading saved RDS objects
+```{r Setting_Up_Enviroment_variables, include=FALSE, warning = FALSE, message=FALSE}
+#Loading objects used in this workbook
+
+```
+
+### Defining functions
+```{r Making_Plotting_Function, include=FALSE, warning = FALSE, message=FALSE}
+plot_stage <- function(stage_name, data, ann_colors_Pilot) {
+  
+  df <- data %>%
+    filter(Stage == stage_name)
+  
+  ggplot(df, aes(x = Timepoint, y = log2CPM)) +
+    
+    geom_boxplot(
+      aes(fill = Species, group = interaction(Timepoint, Species)),
+      position = position_dodge(width = 0.8),
+      alpha = 0.3,
+      outlier.shape = NA
+    ) +
+    
+    scale_fill_manual(values = ann_colors_Pilot$species_cor) +
+    
+    geom_jitter(
+      aes(color = Individual),
+      position = position_jitterdodge(
+        jitter.width = 0.15,
+        dodge.width = 0.8
+      ),
+      size = 1,
+      alpha = 0.6
+    ) +
+    
+    scale_color_manual(values = ann_colors_Pilot$individual_cor) +
+    
+    geom_line(
+      stat = "summary",
+      fun = mean,
+      aes(group = Species, linetype = Species),
+      position = position_dodge(width = 0.8),
+      linewidth = 1
+    ) +
+    
+    scale_linetype_manual(values = c(C = "dotted", H = "solid")) +
+    
+    geom_point(
+      stat = "summary",
+      fun = mean,
+      aes(shape = Species),
+      position = position_dodge(width = 0.8),
+      size = 2
+    ) +
+    
+    facet_wrap(~ Gene, scales = "free_y") +
+    
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    
+    ggtitle(stage_name)
+}
+```
+
+### Data upload and reorganizing
+```{r Setting_Up_Data, results="hide"}
+
+#  RNA_Metadata <- read.delim("~/CrossSpecies_CM_Pilot_RNA/data/RNA_Metadata_Pilot_clean.txt")
+# counts_table <- read.delim("~/CrossSpecies_CM_Pilot_RNA/data/pilot_RNA_fc.txt")
+# marker_genes <- read.delim("~/diff_timeline_tes/RNA/CM_Diff_PurityPanel.txt")
+
+# RNA_fc <- counts_table %>%
+#   filter(Geneid != "#") %>%
+#   filter(Geneid != "Geneid") %>%
+#   column_to_rownames("Geneid")
+# 
+# RNA_Metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+# 
+# # Match metadata rows to the order of RNA_log2cpm columns 
+# RNA_Metadata <- RNA_Metadata[ match(colnames(RNA_fc), RNA_Metadata$Library_ID), ] 
+# 
+# # #Rename column Names to More Useful Info
+# col_names <- RNA_Metadata$SampleName
+# colnames(RNA_fc) <- col_names
+# dim(RNA_fc)
+# 
+# ensembl_ids_unfilt <- rownames(RNA_fc)
+# entrez_ids_unfilt <- mapIds(org.Hs.eg.db,
+#                             keys = ensembl_ids_unfilt,
+#                             column = "ENTREZID",
+#                             keytype = "ENSEMBL",
+#                             multiVals = "first")
+# symbol_ids_unfilt <- mapIds(org.Hs.eg.db,
+#                             keys = ensembl_ids_unfilt,
+#                             column = "SYMBOL",
+#                             keytype = "ENSEMBL",
+#                             multiVals = "first")
+# 
+# RNA_fc_df <- as.data.frame(RNA_fc)
+# RNA_fc_df <- RNA_fc_df %>%
+#   rownames_to_column(var = "Ensemble") %>%
+#   dplyr::mutate(
+#     Entrez_ID = entrez_ids_unfilt,
+#     Symbol    = symbol_ids_unfilt
+#   ) %>%
+#   dplyr::select(
+#     Ensemble,        # 1st column
+#     Entrez_ID,       # 2nd column
+#     Symbol,          # 3rd column
+#     everything()     # rest unchanged
+#   )
+# 
+# rn <- rownames(RNA_fc)
+# 
+# RNA_fc <- as.data.frame(
+#   lapply(RNA_fc, function(x) as.numeric(as.character(x)))
+# )
+# 
+# rownames(RNA_fc) <- rn
+
+# saveRDS(RNA_fc,"data/QC/RNA_fc.RDS")
+# saveRDS(RNA_fc_df,"data/Raw_Data/RNA_fc_df.RDS")
+# saveRDS(RNA_Metadata,"data/Raw_Data/RNA_Metadata.RDS")
+# saveRDS(marker_genes,"data/Raw_Data/marker_genes.RDS")
+# saveRDS(counts_table,"data/Raw_Data/counts_table.RDS")
+```
+
+
+### Defining continually used variables
+```{r Setting_Up_colors, results="hide"}
+
+ann_colors_Pilot <- list(
+  timepoint_cor = c(
+    "Day0" = "#e9a3c1",
+    "DayH" = "#e9a3f1",
+    "Day1" = "#d81b61",
+    "Day2" = "#d81b91", 
+    "Day3" = "#5AAA464D", 
+    "Day4" = "#5AAA469D",  
+    "Day5" = "#6c4199", 
+    "Day7" = "#6c6999",
+    "Day10" = "#e57e67",
+    "Day15" = "#e57e25",  
+    "Day30" = "#9e2b2b"  
+  ),
+  species_cor = c(
+    "H" = "#2167ac",
+    "C" = "#fab89e" 
+  ),
+  individual_cor = c(
+    H6 ="#2167ac",
+    NOT = "#2167fa",
+    C7 = "#f8d3c5"
+    
+  )
+)
+
+# saveRDS(ann_colors_Pilot ,"data/Raw_Data/ann_colors_Pilot.RDS")
+```
+
+## Read statistics
+
+
+## Unfiltered
+
+### Boxplot_Histograms_Unfiltered
+```{r RNASeq_FeatureCounts_Unfiltered, fig.height=6,fig.width=12}
+
+####All####
+
+RNA_fc <- readRDS("data/QC/RNA_fc.RDS")
+
+RNA_log2cpm <- cpm(RNA_fc,log=TRUE)
+
+col_labels <- colnames(RNA_log2cpm)
+
+hist(RNA_log2cpm,  main = "Histogram of all counts (unfiltered)",
+     xlab =expression("Log"[2]*" counts-per-million"), col =4 )
+
+boxplot(RNA_log2cpm, main = "Boxplots of log cpm per sample
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+saveRDS(RNA_log2cpm,"data/QC/RNA_log2cpm.RDS")
+
+####Human####
+
+RNA_log2cpm <- cpm(RNA_fc, log = TRUE)
+
+RNA_log2cpm_Human <- RNA_log2cpm %>%
+  as.data.frame() %>%
+  dplyr::select(starts_with("H"))
+
+col_labels <- colnames(RNA_log2cpm_Human)
+
+hist(as.matrix(RNA_log2cpm_Human),
+     main = "Histogram of all counts - Human (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human, main = "Boxplots of log cpm per sample Human
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+
+RNA_log2cpm_Human_Day0 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day0"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day0)
+
+hist(as.matrix(RNA_log2cpm_Human_Day0),
+     main = "Histogram of all counts - Human Day 0 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day0, main = "Boxplots of log cpm per sample Human Day 0
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_DayH <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("DayH"))
+
+col_labels <- colnames(RNA_log2cpm_Human_DayH)
+
+hist(as.matrix(RNA_log2cpm_Human_DayH),
+     main = "Histogram of all counts - Human Day H (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_DayH, main = "Boxplots of log cpm per sample Human Day H
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+RNA_log2cpm_Human_Day1 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day1"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day1)
+
+hist(as.matrix(RNA_log2cpm_Human_DayH),
+     main = "Histogram of all counts - Human Day 1 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day1, main = "Boxplots of log cpm per sample Human Day 1
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day2 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day2"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day2)
+
+hist(as.matrix(RNA_log2cpm_Human_Day2),
+     main = "Histogram of all counts - Human Day 2 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day2, main = "Boxplots of log cpm per sample Human Day 2
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day3 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day3"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day3)
+
+hist(as.matrix(RNA_log2cpm_Human_Day3),
+     main = "Histogram of all counts - Human Day 3 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day3, main = "Boxplots of log cpm per sample Human Day 3
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day4 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day4"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day4)
+
+hist(as.matrix(RNA_log2cpm_Human_Day4),
+     main = "Histogram of all counts - Human Day 4 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day4, main = "Boxplots of log cpm per sample Human Day 4
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+RNA_log2cpm_Human_Day5 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day5"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day5)
+
+hist(as.matrix(RNA_log2cpm_Human_Day5),
+     main = "Histogram of all counts - Human Day 5 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day5, main = "Boxplots of log cpm per sample Human Day 5
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day7 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day7"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day7)
+
+hist(as.matrix(RNA_log2cpm_Human_Day7),
+     main = "Histogram of all counts - Human Day 7 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day7, main = "Boxplots of log cpm per sample Human Day 7
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day10 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day10"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day10)
+
+hist(as.matrix(RNA_log2cpm_Human_Day10),
+     main = "Histogram of all counts - Human Day 10 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day10, main = "Boxplots of log cpm per sample Human Day H
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day15 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day15"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day15)
+
+hist(as.matrix(RNA_log2cpm_Human_Day15),
+     main = "Histogram of all counts - Human Day 15 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day15, main = "Boxplots of log cpm per sample Human Day 15
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Human_Day30 <- RNA_log2cpm_Human %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day30"))
+
+col_labels <- colnames(RNA_log2cpm_Human_Day30)
+
+hist(as.matrix(RNA_log2cpm_Human_Day30),
+     main = "Histogram of all counts - Human Day 30 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Human_Day30, main = "Boxplots of log cpm per sample Human Day 30
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+
+####Chimp####
+RNA_log2cpm_Chimp <- RNA_log2cpm %>%
+  as.data.frame() %>%
+  dplyr::select(starts_with("C"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp)
+
+hist(as.matrix(RNA_log2cpm_Chimp),
+     main = "Histogram of all counts - Chimp (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp, main = "Boxplots of log cpm per sample - Chimp
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+RNA_log2cpm_Chimp_Day0 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day0"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day0)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day0),
+     main = "Histogram of all counts - Chimp Day 0 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day0, main = "Boxplots of log cpm per sample Chimp Day 0
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_DayH <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("DayH"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_DayH)
+
+hist(as.matrix(RNA_log2cpm_Chimp_DayH),
+     main = "Histogram of all counts - Chimp Day H (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_DayH, main = "Boxplots of log cpm per sample Chimp Day H
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day1 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day1"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day1)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day1),
+     main = "Histogram of all counts - Chimp Day 1 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day1, main = "Boxplots of log cpm per sample Chimp Day 1
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day2 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day2"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day2)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day2),
+     main = "Histogram of all counts - Chimp Day 2 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day2, main = "Boxplots of log cpm per sample Chimp Day 2
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day3 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day3"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day3)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day3),
+     main = "Histogram of all counts - Chimp Day 3 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day3, main = "Boxplots of log cpm per sample Chimp Day 3
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+RNA_log2cpm_Chimp_Day4 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day4"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day4)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day4),
+     main = "Histogram of all counts - Chimp Day 4 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day4, main = "Boxplots of log cpm per sample Chimp Day 4
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+RNA_log2cpm_Chimp_Day5 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day5"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day5)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day5),
+     main = "Histogram of all counts - Chimp Day 5 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day5, main = "Boxplots of log cpm per sample Chimp Day 5
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day7 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day7"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day7)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day7),
+     main = "Histogram of all counts - Chimp Day 7 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day7, main = "Boxplots of log cpm per sample Chimp Day 7
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day10 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day10"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day10)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day10),
+     main = "Histogram of all counts - Chimp Day 10 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day10, main = "Boxplots of log cpm per sample Chimp Day 10
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+RNA_log2cpm_Chimp_Day15 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day15"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day15)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day15),
+     main = "Histogram of all counts - Chimp Day 15 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day15, main = "Boxplots of log cpm per sample Chimp Day 15
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+RNA_log2cpm_Chimp_Day30 <- RNA_log2cpm_Chimp %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Day30"))
+
+col_labels <- colnames(RNA_log2cpm_Chimp_Day30)
+
+hist(as.matrix(RNA_log2cpm_Chimp_Day30),
+     main = "Histogram of all counts - Chimp Day 30 (unfiltered)",
+     xlab = expression("Log"[2]*" counts-per-million"),
+     col = 4)
+
+boxplot(RNA_log2cpm_Chimp_Day30, main = "Boxplots of log cpm per sample Chimp Day 30
+          (unfiltered)", xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+```
+
+### Cor_HeatMap_Unfiltered
+```{r RNASeq_FeatureCounts_Unfiltered_heatmap, fig.height=10,fig.width=10}
+
+RNA_fc <- readRDS("data/QC/RNA_fc.RDS")
+RNA_Metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+
+RNA_log2cpm <- cpm(RNA_fc,log=TRUE)
+
+###### Align Metadata with RNA_log2cpm ###### 
+
+# Match metadata rows to the order of RNA_log2cpm columns 
+RNA_Metadata <- RNA_Metadata[ match(colnames(RNA_log2cpm), RNA_Metadata$SampleName), ] 
+
+RNA_Metadata <- RNA_Metadata %>% 
+  filter(Timepoint != "Day30")
+
+RNA_log2cpm <- RNA_log2cpm %>% 
+  as.data.frame() %>% 
+  dplyr::select(-contains("Day30"))
+
+# Check that all samples matched 
+stopifnot(all(RNA_Metadata$SampleName == colnames(RNA_log2cpm))) 
+
+# Optional: check for missing metadata 
+stopifnot(!any(is.na(RNA_Metadata$SampleName)))
+
+######Cor_HeatMap####
+Cor_RNA_log2cpm <- cor(RNA_log2cpm, method = "spearman")
+individual <- RNA_Metadata$Individual
+species <- RNA_Metadata$Species
+timepoint <- RNA_Metadata$Timepoint
+timepoint <- factor(timepoint,levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7", "Day10", "Day15"))
+Cor_metadata <- data.frame(
+  sample_cor = colnames(Cor_RNA_log2cpm),
+  species_cor = species,
+  timepoint_cor = timepoint,
+  individual_cor = individual
+)
+
+
+rownames(Cor_metadata) <- Cor_metadata$sample_cor
+
+print(
+  pheatmap(Cor_RNA_log2cpm,
+         fontsize_row = 5,
+         fontsize_col = 5,
+         annotation_col = Cor_metadata[, c("species_cor", "timepoint_cor","individual_cor")],
+         annotation_colors = ann_colors_Pilot,
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         main = "Sample-Sample Correlation \n(Spearman-log2CPM-Unfiltered)")
+)
+
+saveRDS(Cor_RNA_log2cpm, "data/QC/Cor_RNA_log2cpm.RDS")
+saveRDS(Cor_metadata, "data/QC/Cor_RNA_metadata.RDS")
+```
+
+
+
+```{r RNASeq_FeatureCounts_Unfiltered_correlation}
+
+RNA_fc <- readRDS("data/QC/RNA_fc.RDS")
+RNA_Metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+
+###### Align Metadata with RNA_log2cpm ###### 
+
+# Match metadata rows to the order of RNA_log2cpm columns 
+RNA_Metadata <- RNA_Metadata[ match(colnames(RNA_log2cpm), RNA_Metadata$SampleName), ] 
+
+metadata <- RNA_Metadata %>% 
+  filter(Timepoint != "Day30")
+
+counts <- RNA_fc %>% 
+  as.data.frame() %>% 
+  dplyr::select(-contains("Day30"))
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggsignif)
+
+metadata <- metadata[
+    match(colnames(counts), metadata$SampleName),
+]
+
+
+Cor_log2cpm <- readRDS("data/QC/Cor_RNA_log2cpm.RDS")
+
+
+sample_info <- data.frame(
+  sample    = colnames(Cor_log2cpm),
+  species   = metadata$Species,
+  timepoint = metadata$Timepoint
+)
+
+
+cor_long <- as.data.frame(Cor_log2cpm) %>%
+  mutate(sample1 = rownames(Cor_log2cpm)) %>%
+  pivot_longer(
+    -sample1,
+    names_to = "sample2",
+    values_to = "cor"
+  ) %>%
+  filter(sample1 != sample2) %>%
+  left_join(
+    sample_info,
+    by = c("sample1" = "sample")
+  ) %>%
+  dplyr::rename(
+    species1 = species,
+    timepoint1 = timepoint
+  ) %>%
+  left_join(
+    sample_info,
+    by = c("sample2" = "sample")
+  ) %>%
+  dplyr::rename(
+    species2 = species,
+    timepoint2 = timepoint
+  )
+
+
+same_day_cross <- cor_long %>%
+  filter(
+    species1 != species2,
+    timepoint1 == timepoint2
+  ) %>%
+  filter(species1 == "H") %>% 
+  mutate(
+    timepoint1 = factor(
+      timepoint1,
+      levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15","Day30")
+    )
+  )
+
+
+# ---------------------------------------------------------
+# Summary statistics
+# ---------------------------------------------------------
+
+summary_by_day <- same_day_cross %>%
+  group_by(timepoint1) %>%
+  summarise(
+    mean_cor = mean(cor, na.rm = TRUE),
+    sd_cor = sd(cor, na.rm = TRUE),
+    n = n()
+  )
+
+summary_by_day
+
+
+# ---------------------------------------------------------
+# Kruskal-Wallis test
+# ---------------------------------------------------------
+
+kruskal_res <- kruskal.test(
+  cor ~ timepoint1,
+  data = same_day_cross
+)
+
+kruskal_res
+
+
+# ---------------------------------------------------------
+# ALL pairwise Wilcoxon rank-sum tests
+# ---------------------------------------------------------
+
+library(dplyr)
+library(ggplot2)
+# install.packages("rstatix")
+library(rstatix)
+# install.packages("ggpubr")
+library(ggpubr)
+
+# ---------------------------------------------------------
+# Pairwise Wilcoxon tests with BH correction
+# ---------------------------------------------------------
+
+stat.test <- same_day_cross %>%
+  pairwise_wilcox_test(
+    cor ~ timepoint1,
+    p.adjust.method = "BH"
+  ) %>%
+  add_significance("p.adj") %>% 
+  add_y_position()
+
+stat.test
+
+# Keep only significant comparisons if desired
+stat.test <- stat.test %>%
+  filter(p.adj <= 0.05)
+
+
+stat.test
+
+# ---------------------------------------------------------
+# Plot
+# ---------------------------------------------------------
+
+plot <- ggplot(
+  same_day_cross,
+  aes(
+    x = timepoint1,
+    y = cor,
+    group = 1
+  )
+) +
+
+  geom_line(
+    alpha = 0.5
+  ) +
+
+  geom_point(
+    alpha = 0.6,
+    size = 2
+  ) +
+
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.adj.signif",
+    step.increase = 0.07
+  ) +
+
+  coord_cartesian(
+    ylim = c(0.8, 1.00)
+  ) +
+
+  labs(
+    title = "Cross-species (Human vs Chimp) correlation, matched timepoints \nUnfiltered",
+    x = "Timepoint",
+    y = "Spearman correlation"
+  ) +
+
+  theme_classic()
+
+plot
+
+ggsave(
+  "purity_plot.pdf",
+  plot = plot,
+  width = 5,
+  height = 5
+)
+
+```
+
+
+### Markers_Unfiltered
+```{r RNASeq_FeatureCounts_Unfiltered_markers, fig.height=6,fig.width=12}
+
+RNA_fc <- readRDS("data/QC/RNA_fc.RDS")
+RNA_Metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+marker_genes <- readRDS("data/Raw_Data/marker_genes.RDS")
+
+RNA_log2cpm <- cpm(RNA_fc,log=TRUE)
+
+###### Align Metadata with RNA_log2cpm ###### 
+
+# Match metadata rows to the order of RNA_log2cpm columns 
+RNA_Metadata <- RNA_Metadata[ match(colnames(RNA_log2cpm), RNA_Metadata$SampleName), ] 
+
+metadata <- RNA_Metadata %>% 
+  filter(Timepoint != "Day30")
+
+counts <- RNA_fc %>% 
+  as.data.frame() %>% 
+  dplyr::select(-contains("Day30"))
+
+RNA_log2cpm <- cpm(counts,log=TRUE)
+
+markers <- marker_genes$Ensembl.ID
+
+log2cpm_long <- RNA_log2cpm %>%
+  as.data.frame() %>%
+  rownames_to_column("Ensembl.ID") %>%
+  filter(Ensembl.ID %in% markers) %>% 
+  pivot_longer(
+    cols = -Ensembl.ID,
+    names_to = "Sample",
+    values_to = "log2CPM"
+  )
+
+log2cpm_long <- log2cpm_long %>%
+  left_join(RNA_Metadata, by = c("Sample" = "SampleName"))
+
+log2cpm_long <- log2cpm_long %>%
+  left_join(marker_genes, by = "Ensembl.ID",relationship = "many-to-many")
+
+log2cpm_long$Timepoint <- factor(
+  log2cpm_long$Timepoint,
+  levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15","Day30")
+)
+
+log2cpm_long_NoR <- log2cpm_long %>% 
+  filter(Individual != "H4R")
+
+mean_df <- log2cpm_long_NoR %>%
+  group_by(Stage, Timepoint, Species) %>%
+  summarise(
+    mean_log2CPM = mean(log2CPM),
+    .groups = "drop"
+  )
+
+log2cpm_long_NoR$Stage <- factor(
+  log2cpm_long_NoR$Stage,
+  levels = c(
+    "Pluripotency",
+    "Mesoderm",
+    "CardiacProgenitors",
+    "EarlyCardiomyocytes",
+    "MatureCardiomyocytes"
+  )
+)
+
+  
+  
+  
+```
+
+
+```{r RNASeq_FeatureCounts_FullMarkerPanel_ByStage, fig.height=12,fig.width=12}
+library(ggplot2)
+
+ggplot(log2cpm_long_NoR, aes(
+  x = Timepoint,
+  y = log2CPM
+)) +
+
+  geom_boxplot(
+  aes(fill = Species, group = interaction(Timepoint, Species)),
+  alpha = 0.3,
+  outlier.shape = NA,
+  position = position_dodge(width = 0.8)
+  ) +
+  
+    scale_fill_manual(values = ann_colors_Pilot$species_cor) +
+  
+    geom_jitter(
+  aes(color = Individual),
+  position = position_jitterdodge(
+    jitter.width = 0.15,
+    dodge.width = 0.8
+  ),
+  size = 1,
+  alpha = 0.6
+) +
+  
+  scale_color_manual(values = ann_colors_Pilot$individual_cor)+
+
+  geom_line(
+    data = mean_df,
+    aes(
+      x = Timepoint,
+      y = mean_log2CPM,
+      group = interaction(Stage, Species),
+      linetype = Species
+    ),
+    color = "black",
+    linewidth = 1.2
+  ) +
+
+  geom_point(
+    data = mean_df,
+    aes(
+      x = Timepoint,
+      y = mean_log2CPM,
+      shape = Species
+    ),
+    color = "black",
+    size = 2
+  ) +
+
+  scale_linetype_manual(values = c(
+    C = "dotted",
+    H = "solid"
+  )) +
+
+  scale_shape_manual(values = c(
+    C = 16,
+    H = 17
+  )) +
+
+  facet_wrap(~ factor(Stage, levels = levels(log2cpm_long_NoR$Stage))) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r RNASeq_FeatureCounts_Unfiltered_markers_heatmap, fig.width=10, fig.height=10}
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+mat <- log2cpm_long_NoR %>%
+  dplyr::group_by(Gene, Sample) %>%
+  dplyr::summarise(log2CPM = mean(log2CPM, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = Sample, values_from = log2CPM) %>%
+  tibble::column_to_rownames("Gene") %>%
+  as.matrix()
+
+stage_order <- c(
+  "Pluripotency",
+  "Mesoderm",
+  "CardiacProgenitors",
+  "EarlyCardiomyocytes"
+)
+
+gene_annot <- log2cpm_long_NoR %>%
+  dplyr::select(Gene, Stage) %>%
+  distinct() %>%
+  dplyr::mutate(Stage = factor(Stage, levels = stage_order)) %>%
+  dplyr::arrange(Stage) %>% 
+  filter(!(Stage == "MatureCardiomyocytes")) 
+# %>% 
+#   filter(Gene %in% c("POU5F1","T(Brachyury)","ISL1","TNNT2"))
+
+mat <- mat[gene_annot$Gene, ]
+
+gene_annot <- data.frame(Stage = gene_annot$Stage)
+rownames(gene_annot) <- gene_annot$Gene
+
+tp_order <- c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15")
+
+sample_annot <- log2cpm_long_NoR %>%
+  distinct(Sample, Timepoint, Species, Individual) %>%
+  mutate(Timepoint = trimws(Timepoint)) %>%
+  dplyr::mutate(Timepoint = factor(Timepoint, levels = tp_order)) %>%
+  column_to_rownames("Sample")
+
+sample_annot <- sample_annot[colnames(mat), ]
+
+rownames(sample_annot) <- sample_annot$Sample
+sample_annot <- sample_annot[, c("Timepoint", "Species")]
+
+annotation_colors = list(
+  Timepoint  = ann_colors_Pilot$timepoint_cor,
+  Species    = ann_colors_Pilot$species_cor,
+
+  Stage = c(
+    Pluripotency = "#1f77b4",
+    Mesoderm = "#ff7f0e",
+    CardiacMesoderm = "yellow",
+    CardiacProgenitors = "#2ca02c",
+    EarlyCardiomyocytes = "#d62728"
+  )
+)
+
+tp_order <- c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15")
+
+sample_annot <- log2cpm_long_NoR %>%
+  distinct(Sample, Timepoint, Species, Individual) %>%
+  mutate(Timepoint = factor(trimws(Timepoint), levels = tp_order)) %>%
+  arrange(Timepoint, Species, Individual) %>%
+  column_to_rownames("Sample")
+
+# Explicitly reorder matrix columns
+mat <- mat[, rownames(sample_annot)]
+
+sample_annot <- sample_annot[, c("Timepoint", "Species")]
+
+pheatmap(
+  mat,
+  annotation_col = sample_annot,
+  annotation_row = gene_annot,
+  annotation_colors = annotation_colors,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  clustering_distance_cols = "correlation",
+  color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100)
+)
+```
+
+```{r RNASeq_FeatureCounts_Unfiltered_markers_heatmap2}
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+mat <- log2cpm_long_NoR %>%
+  dplyr::group_by(Gene, Sample) %>%
+  dplyr::summarise(log2CPM = mean(log2CPM, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = Sample, values_from = log2CPM) %>%
+  tibble::column_to_rownames("Gene") %>%
+  as.matrix()
+
+stage_order <- c(
+  "Pluripotency",
+  "Mesoderm",
+  "CardiacProgenitors",
+  "EarlyCardiomyocytes"
+)
+
+gene_annot_df <- log2cpm_long_NoR %>%
+  dplyr::select(Gene, Stage) %>%
+  distinct() %>%
+  filter(Stage != "MatureCardiomyocytes", !is.na(Stage)) %>%
+  dplyr::mutate(Stage = factor(Stage, levels = stage_order)) %>%
+  dplyr::arrange(Stage)
+
+# Order matrix rows and set row names properly
+mat <- mat[gene_annot_df$Gene, ]
+gene_annot <- data.frame(Stage = gene_annot_df$Stage, row.names = gene_annot_df$Gene)
+
+tp_order <- c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15")
+
+sample_annot <- log2cpm_long_NoR %>%
+  distinct(Sample, Timepoint, Species) %>%
+  mutate(Timepoint = factor(trimws(Timepoint), levels = tp_order)) %>%
+  column_to_rownames("Sample")
+
+# Align sample_annot to matrix columns while preserving row names
+sample_annot <- sample_annot[colnames(mat), c("Timepoint", "Species"), drop = FALSE]
+
+annotation_colors <- list(
+  Timepoint = ann_colors_Pilot$timepoint_cor,
+  Species   = ann_colors_Pilot$species_cor,
+  Stage = c(
+    Pluripotency = "#1f77b4",
+    Mesoderm = "#ff7f0e",
+    CardiacMesoderm = "yellow",
+    CardiacProgenitors = "#2ca02c",
+    EarlyCardiomyocytes = "#d62728"
+  )
+)
+
+# Use pheatmap::pheatmap() directly with filename to avoid the S4 error
+pheatmap::pheatmap(
+  mat,
+  annotation_col = sample_annot,
+  annotation_row = gene_annot,
+  annotation_colors = annotation_colors,
+  cluster_rows = FALSE,
+  clustering_distance_cols = "correlation",
+  color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100),
+  filename = path.expand("docs/pilot_marker_heatmap.pdf"),
+  width = 10,
+  height = 12
+)
+
+```
+
+## logCPM >1 in one sample
+
+### All days
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints, fig.height=6,fig.width=12}
+
+counts <- readRDS("data/QC/RNA_fc.RDS")
+
+log2cpm <- cpm(counts,log=TRUE)
+
+group <- RNA_Metadata$Species
+
+keep <- rowSums(RNA_log2cpm > 1) >= 1
+  
+filtered_RNA_fc <- RNA_fc[keep, ]
+
+saveRDS(filtered_RNA_fc,"data/QC/Filt_logcpm_G1_1sample_RNA_fc.RDS")
+
+filtered_log2cpm <- cpm(filtered_RNA_fc,log=TRUE)
+
+saveRDS(filtered_log2cpm,"data/QC/Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+
+hist(filtered_log2cpm, main = "Histogram of filtered counts using lcpm >1 in 1 sample",
+     xlab =expression("Log"[2]*" counts-per-million"), col =5 )
+
+col_labels <- RNA_Metadata$SampleName
+
+boxplot(filtered_log2cpm, main = "Boxplots of log cpm per sample with lcpm >1 in 1 sample ",xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+
+
+filtered_log2cpm_human <- filtered_log2cpm %>% 
+  as.data.frame() %>% 
+  dplyr::select(contains("H")) %>% 
+  as.matrix()
+
+hist(filtered_log2cpm_human, main = "Histogram of human filtered counts using lcpm >1 in 1 sample",
+     xlab =expression("Log"[2]*" counts-per-million"), col =5 )
+
+col_labels <- RNA_Metadata$SampleName
+
+boxplot(filtered_log2cpm_human, main = "Boxplots of human log cpm per sample with lcpm >1 in 1 sample",xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+
+
+
+
+
+
+filtered_log2cpm_chimp <- filtered_log2cpm %>% 
+  as.data.frame() %>% 
+  dplyr::select(contains("C")) %>% 
+  as.matrix()
+
+hist(filtered_log2cpm_chimp, main = "Histogram of chimp filtered counts using lcpm >1 in 1 sample",
+     xlab =expression("Log"[2]*" counts-per-million"), col =5 )
+
+col_labels <- RNA_Metadata$SampleName
+
+boxplot(filtered_log2cpm_chimp, main = "Boxplots of chimp log cpm per sample with lcpm >1 in 1 sample",xaxt = "n", xlab= "")
+axis(1,
+     at = 1:length(col_labels),  # positions (one per sample)
+     labels = col_labels,        # your labels vector
+     las = 2,               # rotate text vertically (like srt=90)
+     cex.axis = 0.6)        # shrink label size
+```
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints_CorrelationHeatmap,fig.height=10,fig.width=10}
+
+log2cpm <-readRDS("data/QC/Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+
+
+metadata <- metadata %>% 
+  filter(Timepoint != "Day30")
+
+log2cpm <- log2cpm %>% 
+  as.data.frame() %>% 
+  dplyr::select(-contains("Day30"))
+
+
+###### Align Metadata with RNA_log2cpm ###### 
+
+# Match metadata rows to the order of RNA_log2cpm columns 
+metadata <- metadata[ match(colnames(log2cpm), metadata$SampleName), ] 
+
+# Check that all samples matched 
+stopifnot(all(metadata$SampleName == colnames(log2cpm))) 
+
+# Optional: check for missing metadata 
+stopifnot(!any(is.na(metadata$SampleName)))
+
+# log2cpm <- log2cpm %>% 
+#   as.data.frame() %>% 
+#   select(-contains("DayH"))
+# 
+# metadata <- metadata %>% 
+#   filter(Timepoint != "DayH")
+
+######Cor_HeatMap####
+Cor_log2cpm <- cor(log2cpm, method = "spearman")
+species <- metadata$Species
+timepoint <- metadata$Timepoint
+timepoint <- factor(timepoint,levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15"))
+Cor_metadata <- data.frame(
+  sample_cor = colnames(Cor_log2cpm),
+  species_cor = species,
+  timepoint_cor = timepoint,
+  individual_cor = individual
+)
+
+rownames(Cor_metadata) <- Cor_metadata$sample_cor
+
+print(
+  pheatmap(Cor_log2cpm,
+         fontsize_row = 5,
+         fontsize_col = 5,
+         annotation_col = Cor_metadata[, c("species_cor", "timepoint_cor")],
+         annotation_colors = ann_colors_Pilot,
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         main = "Sample-Sample Correlation \n(Spearman-log2CPM->1 in at least 1 sample")
+)
+
+saveRDS(Cor_log2cpm, "data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+
+```
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints_Correlation}
+
+Cor_log2cpm <- readRDS("data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+
+H_samples <- grep("^H", colnames(Cor_log2cpm), value = TRUE)
+C_samples <- grep("^C", colnames(Cor_log2cpm), value = TRUE)
+
+H_C_cor <- expand.grid(
+  H_sample = H_samples,
+  C_sample = C_samples,
+  stringsAsFactors = FALSE
+)
+
+H_C_cor$Spearman <- mapply(
+  function(h, c) Cor_log2cpm[h, c],
+  H_C_cor$H_sample,
+  H_C_cor$C_sample
+)
+
+H_C_cor$H_timepoint <- sub("^.*_(Day.*)$", "\\1", H_C_cor$H_sample)
+H_C_cor$C_timepoint <- sub("^.*_(Day.*)$", "\\1", H_C_cor$C_sample)
+
+head(H_C_cor)
+
+timepoint_order <- c(
+  "Day0", "DayH", "Day1", "Day2", "Day3",
+  "Day4", "Day5", "Day7", "Day10", "Day15"
+)
+
+H_C_cor$H_timepoint <- factor(
+  H_C_cor$H_timepoint,
+  levels = timepoint_order
+)
+
+H_C_cor$C_timepoint <- factor(
+  H_C_cor$C_timepoint,
+  levels = timepoint_order
+)
+
+
+table(H_C_cor$H_timepoint, H_C_cor$C_timepoint)
+
+library(ggplot2)
+
+ggplot(
+  subset(H_C_cor, H_timepoint == "Day0"),
+  aes(x = C_timepoint, y = Spearman, group = 1)
+) +
+  geom_line() +
+  geom_point(size = 3) +
+  theme_classic() +
+  labs(
+    x = "Chimpanzee developmental timepoint",
+    y = "Spearman correlation",
+    title = "Human Day0 vs. chimpanzee developmental trajectory"
+  )
+
+ggplot(
+  H_C_cor,
+  aes(x = C_timepoint, y = Spearman, group = H_timepoint, color = H_timepoint)
+) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_classic() +
+  labs(
+    x = "Chimpanzee developmental timepoint",
+    y = "Spearman correlation",
+    color = "Human timepoint"
+  )
+```
+
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints_Correlation2}
+
+Cor_log2cpm <- readRDS("data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+
+H_samples <- grep("^H", colnames(Cor_log2cpm), value = TRUE)
+C_samples <- grep("^C", colnames(Cor_log2cpm), value = TRUE)
+
+H_C_cor <- expand.grid(
+  H_sample = H_samples,
+  C_sample = C_samples,
+  stringsAsFactors = FALSE
+)
+
+H_C_cor$Spearman <- mapply(
+  function(h, c) Cor_log2cpm[h, c],
+  H_C_cor$H_sample,
+  H_C_cor$C_sample
+)
+
+H_C_cor$H_timepoint <- sub("^.*_(Day.*)$", "\\1", H_C_cor$H_sample)
+H_C_cor$C_timepoint <- sub("^.*_(Day.*)$", "\\1", H_C_cor$C_sample)
+
+head(H_C_cor)
+
+timepoint_order <- c(
+  "Day0", "DayH", "Day1", "Day2", "Day3",
+  "Day4", "Day5", "Day7", "Day10", "Day15"
+)
+
+H_C_cor$H_timepoint <- factor(
+  H_C_cor$H_timepoint,
+  levels = timepoint_order
+)
+
+H_C_cor$C_timepoint <- factor(
+  H_C_cor$C_timepoint,
+  levels = timepoint_order
+)
+
+
+table(H_C_cor$H_timepoint, H_C_cor$C_timepoint)
+
+library(ggplot2)
+
+ggplot(
+  subset(H_C_cor, C_timepoint == "Day0"),
+  aes(x = H_timepoint, y = Spearman, group = 1)
+) +
+  geom_line() +
+  geom_point(size = 3) +
+  theme_classic() +
+  labs(
+    x = "Human developmental timepoint",
+    y = "Spearman correlation",
+    title = "Chimp Day0 vs. human developmental trajectory"
+  )
+
+ggplot(
+  H_C_cor,
+  aes(x = H_timepoint, y = Spearman, group = C_timepoint, color = C_timepoint)
+) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_classic() +
+  labs(
+    x = "Human developmental timepoint",
+    y = "Spearman correlation",
+    color = "Chimp timepoint"
+  )
+```
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints_Correlation_matched}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggsignif)
+
+counts <- readRDS("data/QC/Filt_logcpm_G1_1sample_RNA_fc.RDS")
+metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+
+metadata <- metadata %>% 
+  filter(Timepoint != "Day30")
+
+counts <- counts %>% 
+  as.data.frame() %>% 
+  dplyr::select(-contains("Day30"))
+
+# Make sure metadata follows the count matrix
+metadata <- metadata[
+    match(colnames(counts), metadata$SampleName),
+]
+
+metadata <- metadata %>% 
+  filter(Individual != "H4R") 
+
+counts <- counts %>% 
+  dplyr::select(-contains("R"))
+
+
+Cor_log2cpm <- readRDS(
+  "data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS"
+)
+
+
+sample_info <- data.frame(
+  sample    = colnames(Cor_log2cpm),
+  species   = metadata$Species,
+  timepoint = metadata$Timepoint
+)
+
+
+cor_long <- as.data.frame(Cor_log2cpm) %>%
+  mutate(sample1 = rownames(Cor_log2cpm)) %>%
+  pivot_longer(
+    -sample1,
+    names_to = "sample2",
+    values_to = "cor"
+  ) %>%
+  filter(sample1 != sample2) %>%
+  left_join(
+    sample_info,
+    by = c("sample1" = "sample")
+  ) %>%
+  dplyr::rename(
+    species1 = species,
+    timepoint1 = timepoint
+  ) %>%
+  left_join(
+    sample_info,
+    by = c("sample2" = "sample")
+  ) %>%
+  dplyr::rename(
+    species2 = species,
+    timepoint2 = timepoint
+  )
+
+species_day_cross <- cor_long %>%
+  filter(
+    species1 != species2,
+  ) %>%
+  filter(species1 == "H") %>% 
+  mutate(
+    timepoint1 = factor(
+      timepoint1,
+      levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15","Day30")
+    )
+  )
+
+same_day_cross <- cor_long %>%
+  filter(
+    species1 != species2,
+    timepoint1 == timepoint2
+  ) %>%
+  filter(species1 == "H") %>% 
+  mutate(
+    timepoint1 = factor(
+      timepoint1,
+      levels = c("Day0","DayH","Day1","Day2","Day3","Day4","Day5","Day7","Day10","Day15","Day30")
+    )
+  )
+
+
+# ---------------------------------------------------------
+# Summary statistics
+# ---------------------------------------------------------
+
+summary_by_day <- same_day_cross %>%
+  group_by(timepoint1) %>%
+  summarise(
+    mean_cor = mean(cor, na.rm = TRUE),
+    sd_cor = sd(cor, na.rm = TRUE),
+    n = n()
+  )
+
+summary_by_day
+
+
+# ---------------------------------------------------------
+# Kruskal-Wallis test
+# ---------------------------------------------------------
+
+kruskal_res <- kruskal.test(
+  cor ~ timepoint1,
+  data = same_day_cross
+)
+
+kruskal_res
+
+
+# ---------------------------------------------------------
+# ALL pairwise Wilcoxon rank-sum tests
+# ---------------------------------------------------------
+
+library(dplyr)
+library(ggplot2)
+# install.packages("rstatix")
+library(rstatix)
+# install.packages("ggpubr")
+library(ggpubr)
+
+# ---------------------------------------------------------
+# Pairwise Wilcoxon tests with BH correction
+# ---------------------------------------------------------
+
+stat.test <- same_day_cross %>%
+  pairwise_wilcox_test(
+    cor ~ timepoint1
+  ) %>%
+  add_y_position()
+
+stat.test
+
+# Keep only significant comparisons if desired
+stat.test <- stat.test %>%
+  filter(p.adj <= 0.05)
+
+
+stat.test
+
+# ---------------------------------------------------------
+# Plot
+# ---------------------------------------------------------
+
+plot <- ggplot(
+  same_day_cross,
+  aes(
+    x = timepoint1,
+    y = cor,
+    group = 1
+  )
+) +
+
+  geom_line(
+    alpha = 0.5
+  ) +
+
+  geom_point(
+    alpha = 0.6,
+    size = 2
+  ) +
+
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.adj.signif",
+    step.increase = 0.07
+  ) +
+
+  coord_cartesian(
+    ylim = c(0.8, 1.00)
+  ) +
+
+  labs(
+    title = "Cross-species (Human vs Chimp) correlation, matched timepoints \nLog2cpm >1 in at least 1 sample",
+    x = "Timepoint",
+    y = "Spearman correlation"
+  ) +
+
+  theme_classic()
+
+plot
+
+ggsave(
+  "purity_plot.pdf",
+  plot = plot,
+  width = 5,
+  height = 5
+)
+
+```
+
+```{r RNASeq_FeatureCounts_lcpm_G1_HalfSpeciesTimepoints_Correlation_matched_subset, fig.width=5,fig.height=5}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggsignif)
+
+counts <- readRDS("data/QC/Filt_logcpm_G1_1sample_RNA_fc.RDS")
+metadata <- readRDS("data/Raw_Data/RNA_Metadata.RDS")
+
+metadata <- metadata %>% 
+  filter(Timepoint != c("DayH","Day1","Day3","Day4","Day7","Day10","Day30"))
+
+counts <- counts %>% 
+  as.data.frame() %>% 
+  dplyr::select(
+    -matches("DayH|Day1(?!5)|Day4|Day3|Day7|Day10|Day30", perl = TRUE)
+  )
+
+# Make sure metadata follows the count matrix
+metadata <- metadata[
+    match(colnames(counts), metadata$SampleName),
+]
+
+
+
+Cor_log2cpm <- readRDS(
+  "data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS"
+)
+
+Cor_log2cpm <- Cor_log2cpm %>% 
+  as.data.frame() %>% 
+  dplyr::select(
+    -matches("DayH|Day1(?!5)|Day3|Day4|Day7|Day10|Day30", perl = TRUE)
+  )
+
+
+sample_info <- data.frame(
+  sample    = colnames(Cor_log2cpm),
+  species   = metadata$Species,
+  timepoint = metadata$Timepoint
+)
+
+
+cor_long <- as.data.frame(Cor_log2cpm) %>%
+  mutate(sample1 = rownames(Cor_log2cpm)) %>%
+  pivot_longer(
+    -sample1,
+    names_to = "sample2",
+    values_to = "cor"
+  ) %>%
+  filter(sample1 != sample2) %>%
+  left_join(
+    sample_info,
+    by = c("sample1" = "sample")
+  ) %>%
+  dplyr::rename(
+    species1 = species,
+    timepoint1 = timepoint
+  ) %>%
+  left_join(
+    sample_info,
+    by = c("sample2" = "sample")
+  ) %>%
+  dplyr::rename(
+    species2 = species,
+    timepoint2 = timepoint
+  )
+
+species_day_cross <- cor_long %>%
+  filter(
+    species1 != species2,
+  ) %>%
+  filter(species1 == "H") %>% 
+  mutate(
+    timepoint1 = factor(
+      timepoint1,
+      levels = c("Day0","Day2","Day4","Day5","Day15")
+    )
+  )
+
+same_day_cross <- cor_long %>%
+  filter(
+    species1 != species2,
+    timepoint1 == timepoint2
+  ) %>%
+  filter(species1 == "H") %>% 
+  mutate(
+    timepoint1 = factor(
+      timepoint1,
+      levels = c("Day0","Day2","Day4","Day5","Day15")
+    )
+  )
+
+
+# ---------------------------------------------------------
+# Summary statistics
+# ---------------------------------------------------------
+
+summary_by_day <- same_day_cross %>%
+  group_by(timepoint1) %>%
+  summarise(
+    mean_cor = mean(cor, na.rm = TRUE),
+    sd_cor = sd(cor, na.rm = TRUE),
+    n = n()
+  )
+
+summary_by_day
+
+
+# ---------------------------------------------------------
+# Kruskal-Wallis test
+# ---------------------------------------------------------
+
+kruskal_res <- kruskal.test(
+  cor ~ timepoint1,
+  data = same_day_cross
+)
+
+kruskal_res
+
+
+# ---------------------------------------------------------
+# ALL pairwise Wilcoxon rank-sum tests
+# ---------------------------------------------------------
+
+library(dplyr)
+library(ggplot2)
+# install.packages("rstatix")
+library(rstatix)
+# install.packages("ggpubr")
+library(ggpubr)
+
+# ---------------------------------------------------------
+# Pairwise Wilcoxon tests with BH correction
+# ---------------------------------------------------------
+
+stat.test <- same_day_cross %>%
+  pairwise_wilcox_test(
+    cor ~ timepoint1
+  ) %>%
+  add_y_position()
+
+stat.test
+
+# Keep only significant comparisons if desired
+stat.test <- stat.test %>%
+  filter(p.adj <= 0.05)
+
+
+stat.test
+
+# ---------------------------------------------------------
+# Plot
+# ---------------------------------------------------------
+
+plot <- ggplot(
+  same_day_cross,
+  aes(
+    x = timepoint1,
+    y = cor,
+    group = 1
+  )
+) +
+
+  geom_line(
+    alpha = 0.5
+  ) +
+
+  geom_point(
+    alpha = 0.6,
+    size = 2
+  ) +
+
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.adj.signif",
+    step.increase = 0.07
+  ) +
+
+  coord_cartesian(
+    ylim = c(0.8, 1.00)
+  ) +
+
+  labs(
+    title = "Cross-species (Human vs Chimp) correlation, matched timepoints \nLog2cpm >1 in at least 1 sample",
+    x = "Timepoint",
+    y = "Spearman correlation"
+  ) +
+
+  theme_classic()
+
+plot
+
+ggsave(
+  "purity_plot.pdf",
+  plot = plot,
+  width = 5,
+  height = 5
+)
+
+```
+
+
+
+```{r Updating Website, eval = FALSE}
+
+# git -> commit all changes
+# git -> push
+wflow_publish("analysis/RNA_CorrelationHeatMap.Rmd")
+
+```
+
