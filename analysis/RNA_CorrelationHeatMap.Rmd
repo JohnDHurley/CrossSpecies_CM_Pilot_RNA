@@ -233,7 +233,7 @@ axis(1,
      las = 2,               # rotate text vertically (like srt=90)
      cex.axis = 0.6)        # shrink label size
 
-saveRDS(RNA_log2cpm,"data/QC/RNA_log2cpm.RDS")
+# saveRDS(RNA_log2cpm,"data/QC/RNA_log2cpm.RDS")
 
 ####Human####
 
@@ -780,8 +780,8 @@ print(
          main = "Sample-Sample Correlation \n(Spearman-log2CPM-Unfiltered)")
 )
 
-saveRDS(Cor_RNA_log2cpm, "data/QC/Cor_RNA_log2cpm.RDS")
-saveRDS(Cor_metadata, "data/QC/Cor_RNA_metadata.RDS")
+# saveRDS(Cor_RNA_log2cpm, "data/QC/Cor_RNA_log2cpm.RDS")
+# saveRDS(Cor_metadata, "data/QC/Cor_RNA_metadata.RDS")
 ```
 
 
@@ -1282,11 +1282,11 @@ keep <- rowSums(RNA_log2cpm > 1) >= 1
   
 filtered_RNA_fc <- RNA_fc[keep, ]
 
-saveRDS(filtered_RNA_fc,"data/QC/Filt_logcpm_G1_1sample_RNA_fc.RDS")
+# saveRDS(filtered_RNA_fc,"data/QC/Filt_logcpm_G1_1sample_RNA_fc.RDS")
 
 filtered_log2cpm <- cpm(filtered_RNA_fc,log=TRUE)
 
-saveRDS(filtered_log2cpm,"data/QC/Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+# saveRDS(filtered_log2cpm,"data/QC/Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
 
 hist(filtered_log2cpm, main = "Histogram of filtered counts using lcpm >1 in 1 sample",
      xlab =expression("Log"[2]*" counts-per-million"), col =5 )
@@ -1401,7 +1401,7 @@ print(
          main = "Sample-Sample Correlation \n(Spearman-log2CPM->1 in at least 1 sample")
 )
 
-saveRDS(Cor_log2cpm, "data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
+# saveRDS(Cor_log2cpm, "data/QC/Cor_Filt_logcpm_G1_1sample_RNA_log2cpm.RDS")
 
 ```
 
